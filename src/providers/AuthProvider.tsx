@@ -1,72 +1,54 @@
-import { supabase } from "@/lib/supabase";
-import { Session } from "@supabase/supabase-js";
-import {
-  PropsWithChildren,
-  createContext,
-  useContext,
-  useEffect,
+import React, {
   useState,
+  useEffect,
+  createContext,
+  PropsWithChildren,
 } from "react";
+import { Session, User } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
 
-type AuthData = {
+type AuthProps = {
+  user: User | null;
   session: Session | null;
-  profile: any;
-  loading: boolean;
-  isAdmin: boolean;
+  initialized?: boolean;
+  signOut?: () => void;
 };
 
-const AuthContext = createContext<AuthData>({
-  session: null,
-  loading: true,
-  profile: null,
-  isAdmin: false,
-});
+export const AuthContext = createContext<Partial<AuthProps>>({});
 
-export default function AuthProvider({ children }: PropsWithChildren) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      setSession(session);
-
-      if (session) {
-        // fetch profile
-        const { data } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
-        setProfile(data || null);
-      }
-
-      setLoading(false);
-    };
-
-    fetchSession();
-    supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-  }, []);
-
-  return (
-    <AuthContext.Provider
-      value={{
-        session,
-        loading,
-        profile,
-        isAdmin: false,
-        // isAdmin: profile?.group === "ADMIN"
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+// Custom hook to read the context values
+export function useAuth() {
+  return React.useContext(AuthContext);
 }
 
-export const useAuth = () => useContext(AuthContext);
+export const AuthProvider = ({ children }: PropsWithChildren) => {
+  const [user, setUser] = useState<User | null>();
+  const [session, setSession] = useState<Session | null>(null);
+  const [initialized, setInitialized] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Listen for changes to authentication state
+    const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+      setSession(session);
+      setUser(session ? session.user : null);
+      setInitialized(true);
+    });
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Log out the user
+  const signOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const value = {
+    user,
+    session,
+    initialized,
+    signOut,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
